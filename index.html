@@ -209,18 +209,144 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        .peer-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+
+        .copy-btn {
+            background: var(--secondary);
+            color: white;
+            border: none;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .copy-btn:hover {
+            background: #7e6b9e;
+            transform: translateY(-1px);
+        }
+
+        .copy-btn.success {
+            background: var(--success);
+        }
+        .paste-btn {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            color: var(--secondary);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .name-display {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .loader {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+        }
+
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 0.5rem;
+            display: none;
+            z-index: 2000;
+        }
+        .notification2 {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: whitesmoke;
+            color: red;
+            padding: 1rem 2rem;
+            border-radius: 0.5rem;
+            display: none;
+            z-index: 2000;
+        }
+
+        .edit-btn {
+            background: none;
+            border: none;
+            color: var(--secondary);
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
     <div class="main-container">
         <div class="header">
             <h1>FireFly-NOX Video Chat</h1>
-            <p>Secure peer-to-peer video conferencing</p>
+            <p>Secure video conferencing, Powered By: Fire-Auth</p>
         </div>
-        
+        <div class="modal" id="nameModal">
+            <div class="modal-content">
+                <h3>Welcome to FireFly-NOX!</h3>
+                <input type="text" id="userNameInput" placeholder="Enter your name">
+                <button class="btn btn-primary" onclick="saveUserName()">Save</button>
+            </div>
+        </div>
+    
+        <div class="loader" id="loader">
+            <div class="spinner"></div>
+            <p>Connecting...</p>
+        </div>
+    
+        <div class="notification" id="notification"></div>
+        <div class="notification2" id="notification2"></div>
+    
+        <!-- Modified connection form -->
         <div class="connection-form">
             <div class="input-group">
                 <input type="text" id="peer-id-input" placeholder="Enter peer ID to connect">
+                <button class="paste-btn" onclick="handlePaste()">
+                    <span class="material-icons">content_paste</span>
+                </button>
                 <div class="error-message" id="error-message"></div>
             </div>
             <button class="btn btn-primary" id="startCallBtn">
@@ -230,8 +356,17 @@
         </div>
 
         <div class="status-container">
+            <div class="name-display">
+                <p>Welcome, <strong id="userName">Guest</strong></p>
+                <button class="edit-btn" onclick="showNameEditor()">
+                    <span class="material-icons">edit</span>
+                </button>
+            </div>
             <div class="peer-info">
                 <p>Your Peer ID: <strong id="local-peer-id">Generating...</strong></p>
+                <button class="copy-btn" id="copyPeerId" title="Copy to clipboard">
+                    <span class="material-icons">content_copy</span>
+                </button>
             </div>
         </div>
     </div>
@@ -259,69 +394,188 @@
     </div>
 
     <script>
-        let peer;
+        let peer = null;
         let localStream;
         let currentCall;
         let callStartTime;
         let timerInterval;
         let isFrontCamera = true;
         let currentVideoDeviceId = null;
+        let userName = localStorage.getItem('userName') || 'Guest';
+        let isCallActive = false;
+
+
+
+         // Initialize user name
+         function initUserName() {
+            if (!localStorage.getItem('userName')) {
+                document.getElementById('nameModal').style.display = 'flex';
+            } else {
+                document.getElementById('userName').textContent = userName;
+            }
+        }
+
+        // Name management functions
+        function saveUserName() {
+            const nameInput = document.getElementById('userNameInput').value.trim();
+            if (nameInput) {
+                userName = nameInput;
+                localStorage.setItem('userName', userName);
+                document.getElementById('userName').textContent = userName;
+                document.getElementById('nameModal').style.display = 'none';
+            }
+        }
+
+        function showNameEditor() {
+            document.getElementById('nameModal').style.display = 'flex';
+            document.getElementById('userNameInput').value = userName;
+        }
+
+        // Paste handler
+        async function handlePaste() {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text === peer.id) {
+                    showError("You can't paste your id! please enter valid id");
+                    showNotification2("You can't paste your id! please enter valid id");
+                    return;
+                }
+                document.getElementById('peer-id-input').value = text;
+            } catch (err) {
+                showError('Failed to read clipboard');
+                showNotification2('Failed to read clipboard');
+            }
+        }
+
+        // Enhanced end call function
+        function endCall(initiator = true) {
+            if (currentCall) {
+                if (initiator) {
+                    currentCall.close();
+                    showNotification("Call ended");
+                }
+                currentCall = null;
+            }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            document.getElementById('videoCallContainer').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            stopCallTimer();
+            isCallActive = false;
+        }
+
+        // Initialize on DOM load
+        document.addEventListener('DOMContentLoaded', () => {
+            initializePeer();  // Initialize peer FIRST
+            initUserName();
+            document.getElementById('userName').textContent = userName;
+            checkCameraSupport();  // Initialize camera support AFTER peer
+        });
+
+        // Notification system
+        function showNotification(message, duration = 3000) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.display = 'block';
+            setTimeout(() => notification.style.display = 'none', duration);
+        }
+
+        function showNotification2(message, duration = 3000) {
+            const notification2 = document.getElementById('notification2');
+            notification2.textContent = message;
+            notification2.style.display = 'block';
+            setTimeout(() => notification2.style.display = 'none', duration);
+        }
 
         // Initialize PeerJS connection
         function initializePeer() {
-            peer = new Peer({
-                host: '0.peerjs.com',
-                port: 443,
-                path: '/',
-                pingInterval: 5000,
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'turn:numb.viagenie.ca', username: 'webrtc@live.com', credential: 'muazkh' }
-                    ]
-                }
-            });
-
-            peer.on('open', id => {
-                document.getElementById('local-peer-id').textContent = id;
-            });
-
-            peer.on('error', err => {
-                showError(`Connection error: ${err.message}`);
-                console.error('PeerJS error:', err);
-            });
-
-            peer.on('call', async call => {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: { deviceId: currentVideoDeviceId ? { exact: currentVideoDeviceId } : true },
-                        audio: true
-                    });
+            try {
+                peer = new Peer({
+                    host: '0.peerjs.com',
+                    port: 443,
+                    path: '/',
+                    pingInterval: 5000,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'turn:numb.viagenie.ca', username: 'webrtc@live.com', credential: 'muazkh' }
+                        ]
+                    }
+                });
+    
+                // Event handlers moved INSIDE initializePeer
+                peer.on('open', id => {
+                    document.getElementById('local-peer-id').textContent = id;
+                    document.getElementById('copyPeerId').disabled = false;
+                });
+    
+                peer.on('error', err => {
+                    showError(`Connection error: ${err.message}`);
+                    console.error('PeerJS error:', err);
+                });
+    
+                peer.on('call', async call => {
+                    isCallActive = true;
+                    document.getElementById('loader').style.display = 'block';
                     
-                    localStream = stream;
-                    showVideoContainer();
-                    document.getElementById('localVideo').srcObject = stream;
-
-                    call.answer(stream);
-                    currentCall = call;
-
-                    call.on('stream', remoteStream => {
-                        document.getElementById('remoteVideo').srcObject = remoteStream;
-                        startCallTimer();
-                    });
-
-                    call.on('close', endCall);
-                    call.on('error', err => {
-                        showError('Call error: ' + err.message);
-                        endCall();
-                    });
-
-                } catch (err) {
-                    showError('Failed to answer call: ' + err.message);
-                }
-            });
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ 
+                            video: { deviceId: currentVideoDeviceId || true },
+                            audio: true 
+                        });
+                        
+                        document.getElementById('loader').style.display = 'none';
+                        localStream = stream;
+                        showVideoContainer();
+                        document.getElementById('localVideo').srcObject = stream;
+    
+                        call.answer(stream);
+                        currentCall = call;
+    
+                        call.on('stream', remoteStream => {
+                            document.getElementById('remoteVideo').srcObject = remoteStream;
+                            startCallTimer();
+                            isCallActive = true;
+                        });
+    
+                        call.on('close', () => {
+                            endCall(false);
+                            showNotification("Call Ended!");
+                        });
+    
+                    } catch (err) {
+                        document.getElementById('loader').style.display = 'none';
+                        showError('Failed to answer call: ' + err.message);
+                        showNotification2('Failed to answer call: ' + err.message);
+                    }
+                });
+    
+            } catch (err) {
+                showError('Failed to initialize peer connection: ' + err.message);
+                showNotification2('Failed to initialize peer connection: ' + err.message);
+            }
         }
 
+
+        function copyPeerId() {
+            const peerId = document.getElementById('local-peer-id').textContent;
+            const copyBtn = document.getElementById('copyPeerId');
+            
+            navigator.clipboard.writeText(peerId).then(() => {
+                copyBtn.classList.add('success');
+                copyBtn.innerHTML = '<span class="material-icons">check</span>';
+                setTimeout(() => {
+                    copyBtn.classList.remove('success');
+                    copyBtn.innerHTML = '<span class="material-icons">content_copy</span>';
+                }, 2000);
+                showNotification("Connection ID copied to clipboard");
+            }).catch(err => {
+                showError('Failed to copy: ' + err.message);
+                showNotification2('Failed to copy: ' + err.message);
+            });
+        }
         // Show video container with proper layout
         function showVideoContainer() {
             const container = document.getElementById('videoCallContainer');
@@ -336,18 +590,40 @@
                 document.getElementById('flipCameraBtn').disabled = videoDevices.length < 2;
             } catch (err) {
                 console.error('Error enumerating devices:', err);
+                showNotification2('Error enumerating devices:', err);
             }
         }
 
         // Start video call
         async function startVideoCall() {
+            if (!peer) {
+                if (peerId === peer.id) {
+                    showNotification2("You can't paste your id!");
+                    return;
+                }
+                showError('Connection not ready. Please try again.');
+                showNotification2('Connection not ready. Please try again.');
+                return;
+            }
+
             const peerId = document.getElementById('peer-id-input').value.trim();
             if (!peerId) {
-                showError('Please enter a valid peer ID');
+                if (peerId === peer.id) {
+                    showNotification2("You can't paste your id!");
+                    return;
+                }
+                showError('Please enter a valid connection ID');
+                showNotification2('Please enter a valid connection ID');
+                return;
+            }
+
+            if (peerId === peer.id) {
+                showNotification2("You can't paste your id!");
                 return;
             }
 
             try {
+                document.getElementById('loader').style.display = 'block';
                 const constraints = {
                     video: {
                         deviceId: currentVideoDeviceId ? { exact: currentVideoDeviceId } : undefined,
@@ -368,6 +644,7 @@
                 currentCall = peer.call(peerId, stream);
                 
                 currentCall.on('stream', remoteStream => {
+                    document.getElementById('loader').style.display = 'none';
                     document.getElementById('remoteVideo').srcObject = remoteStream;
                     startCallTimer();
                 });
@@ -375,11 +652,14 @@
                 currentCall.on('close', endCall);
                 currentCall.on('error', err => {
                     showError('Call error: ' + err.message);
+                    showNotification2('Call error: ' + err.message);
                     endCall();
                 });
 
             } catch (err) {
+                document.getElementById('loader').style.display = 'none';
                 showError('Error accessing media devices: ' + err.message);
+                showNotification2('Error accessing media devices: ' + err.message);
             }
         }
 
@@ -429,6 +709,7 @@
                 
                 if (videoDevices.length < 2) {
                     showError('No secondary camera found');
+                    showNotification2('No secondary camera found');
                     return;
                 }
 
@@ -466,6 +747,7 @@
                 
             } catch (err) {
                 showError('Camera flip failed: ' + err.message);
+                showNotification2('Camera flip failed: ' + err.message);
             }
         }
 
@@ -504,6 +786,7 @@
         document.getElementById('toggleVideoBtn').addEventListener('click', toggleVideo);
         document.getElementById('toggleAudioBtn').addEventListener('click', toggleAudio);
         document.getElementById('flipCameraBtn').addEventListener('click', flipCamera);
+        document.getElementById('copyPeerId').addEventListener('click', copyPeerId);
     </script>
 </body>
 </html>
