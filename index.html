@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FireFly-NOX - Secure Video Conferencing</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2A2F4F;
+            --secondary: #917FB3;
+            --background: #FDE2F3;
+            --text: #2A2F4F;
+            --success: #34c759;
+            --danger: #ff4d4d;
+            --border: rgba(42, 47, 79, 0.1);
+            --video-bg: #1a1a1a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', system-ui;
+        }
+
+        body {
+            background: var(--background);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .main-container {
+            max-width: 800px;
+            width: 100%;
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+            position: relative;
+            z-index: 1;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            color: var(--primary);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            font-size: 2rem;
+        }
+
+        .connection-form {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .input-group {
+            flex: 1;
+            position: relative;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: #fff;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--secondary);
+            box-shadow: 0 0 0 3px rgba(145, 127, 179, 0.2);
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #7e6b9e;
+            transform: translateY(-1px);
+        }
+
+        #videoCallContainer {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 1200px;
+            height: 80vh;
+            background: var(--video-bg);
+            border-radius: 15px;
+            padding: 20px;
+            z-index: 1000;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            display: none;
+            grid-template-rows: 1fr auto;
+        }
+
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            height: calc(100% - 60px);
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            border-radius: 10px;
+            object-fit: cover;
+            background: #000;
+            transform: scaleX(-1);
+        }
+
+        .call-controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            padding: 15px 0;
+        }
+
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        .control-btn.end-call {
+            background: var(--danger);
+        }
+
+        .error-message {
+            color: var(--danger);
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .status-container {
+            text-align: center;
+            padding: 1rem;
+            background: rgba(145, 127, 179, 0.1);
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        #local-peer-id {
+            color: var(--secondary);
+            word-break: break-all;
+        }
+
+        .call-timer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-weight: 500;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        /* Add to existing styles */
+        .control-btn.active {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .control-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <h1>FireFly-NOX Video Chat</h1>
+            <p>Secure peer-to-peer video conferencing</p>
+        </div>
+        
+        <div class="connection-form">
+            <div class="input-group">
+                <input type="text" id="peer-id-input" placeholder="Enter peer ID to connect">
+                <div class="error-message" id="error-message"></div>
+            </div>
+            <button class="btn btn-primary" id="startCallBtn">
+                <span class="material-icons">videocam</span>
+                Start Call
+            </button>
+        </div>
+
+        <div class="status-container">
+            <div class="peer-info">
+                <p>Your Peer ID: <strong id="local-peer-id">Generating...</strong></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="videoCallContainer">
+        <div class="call-timer" id="callTimer">00:00</div>
+        <div class="video-grid">
+            <video id="localVideo" autoplay playsinline muted></video>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+        <div class="call-controls">
+            <button class="control-btn end-call" id="endCallBtn">
+                <span class="material-icons">call_end</span>
+            </button>
+            <button class="control-btn toggle-video" id="toggleVideoBtn">
+                <span class="material-icons">videocam</span>
+            </button>
+            <button class="control-btn toggle-audio" id="toggleAudioBtn">
+                <span class="material-icons">mic</span>
+            </button>
+            <button class="control-btn flip-camera" id="flipCameraBtn">
+                <span class="material-icons">flip_camera_ios</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let peer;
+        let localStream;
+        let currentCall;
+        let callStartTime;
+        let timerInterval;
+        let isFrontCamera = true;
+        let currentVideoDeviceId = null;
+
+        // Initialize PeerJS connection
+        function initializePeer() {
+            peer = new Peer({
+                host: '0.peerjs.com',
+                port: 443,
+                path: '/',
+                pingInterval: 5000,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'turn:numb.viagenie.ca', username: 'webrtc@live.com', credential: 'muazkh' }
+                    ]
+                }
+            });
+
+            peer.on('open', id => {
+                document.getElementById('local-peer-id').textContent = id;
+            });
+
+            peer.on('error', err => {
+                showError(`Connection error: ${err.message}`);
+                console.error('PeerJS error:', err);
+            });
+
+            peer.on('call', async call => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: currentVideoDeviceId ? { exact: currentVideoDeviceId } : true },
+                        audio: true
+                    });
+                    
+                    localStream = stream;
+                    showVideoContainer();
+                    document.getElementById('localVideo').srcObject = stream;
+
+                    call.answer(stream);
+                    currentCall = call;
+
+                    call.on('stream', remoteStream => {
+                        document.getElementById('remoteVideo').srcObject = remoteStream;
+                        startCallTimer();
+                    });
+
+                    call.on('close', endCall);
+                    call.on('error', err => {
+                        showError('Call error: ' + err.message);
+                        endCall();
+                    });
+
+                } catch (err) {
+                    showError('Failed to answer call: ' + err.message);
+                }
+            });
+        }
+
+        // Show video container with proper layout
+        function showVideoContainer() {
+            const container = document.getElementById('videoCallContainer');
+            container.style.display = 'grid';
+            document.body.style.overflow = 'hidden';
+        }
+
+        async function checkCameraSupport() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                document.getElementById('flipCameraBtn').disabled = videoDevices.length < 2;
+            } catch (err) {
+                console.error('Error enumerating devices:', err);
+            }
+        }
+
+        // Start video call
+        async function startVideoCall() {
+            const peerId = document.getElementById('peer-id-input').value.trim();
+            if (!peerId) {
+                showError('Please enter a valid peer ID');
+                return;
+            }
+
+            try {
+                const constraints = {
+                    video: {
+                        deviceId: currentVideoDeviceId ? { exact: currentVideoDeviceId } : undefined,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: true
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                const videoTrack = stream.getVideoTracks()[0];
+                currentVideoDeviceId = videoTrack.getSettings().deviceId;
+                
+                localStream = stream;
+                showVideoContainer();
+                document.getElementById('localVideo').srcObject = stream;
+
+                currentCall = peer.call(peerId, stream);
+                
+                currentCall.on('stream', remoteStream => {
+                    document.getElementById('remoteVideo').srcObject = remoteStream;
+                    startCallTimer();
+                });
+
+                currentCall.on('close', endCall);
+                currentCall.on('error', err => {
+                    showError('Call error: ' + err.message);
+                    endCall();
+                });
+
+            } catch (err) {
+                showError('Error accessing media devices: ' + err.message);
+            }
+        }
+
+        // End current call
+        function endCall() {
+            if (currentCall) currentCall.close();
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            document.getElementById('videoCallContainer').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            stopCallTimer();
+        }
+
+        // Toggle video track
+        // Modified toggle functions
+        function toggleVideo() {
+            const videoTrack = localStream?.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                const btn = document.getElementById('toggleVideoBtn');
+                btn.innerHTML = videoTrack.enabled 
+                    ? '<span class="material-icons">videocam</span>'
+                    : '<span class="material-icons">videocam_off</span>';
+                btn.classList.toggle('active', !videoTrack.enabled);
+            }
+        }
+
+        // Toggle audio track
+        function toggleAudio() {
+            const audioTrack = localStream?.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                const btn = document.getElementById('toggleAudioBtn');
+                btn.innerHTML = audioTrack.enabled 
+                    ? '<span class="material-icons">mic</span>'
+                    : '<span class="material-icons">mic_off</span>';
+                btn.classList.toggle('active', !audioTrack.enabled);
+            }
+        }
+
+        async function flipCamera() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                
+                if (videoDevices.length < 2) {
+                    showError('No secondary camera found');
+                    return;
+                }
+
+                const newDeviceId = videoDevices.find(
+                    d => d.deviceId !== currentVideoDeviceId
+                )?.deviceId;
+
+                if (!newDeviceId) return;
+
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: { exact: newDeviceId } },
+                    audio: true
+                });
+
+                const newVideoTrack = newStream.getVideoTracks()[0];
+                const oldVideoTrack = localStream.getVideoTracks()[0];
+                
+                localStream.removeTrack(oldVideoTrack);
+                localStream.addTrack(newVideoTrack);
+                oldVideoTrack.stop();
+
+                if (currentCall) {
+                    const sender = currentCall.peerConnection
+                        .getSenders()
+                        .find(s => s.track.kind === 'video');
+                    
+                    if (sender) {
+                        await sender.replaceTrack(newVideoTrack);
+                        currentVideoDeviceId = newDeviceId;
+                        document.getElementById('localVideo').srcObject = localStream;
+                    }
+                }
+
+                newStream.getTracks().filter(t => t !== newVideoTrack).forEach(t => t.stop());
+                
+            } catch (err) {
+                showError('Camera flip failed: ' + err.message);
+            }
+        }
+
+        // Call timer functions
+        function startCallTimer() {
+            callStartTime = Date.now();
+            timerInterval = setInterval(updateCallTimer, 1000);
+        }
+
+        function updateCallTimer() {
+            const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+            const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const seconds = String(elapsed % 60).padStart(2, '0');
+            document.getElementById('callTimer').textContent = `${minutes}:${seconds}`;
+        }
+
+        function stopCallTimer() {
+            clearInterval(timerInterval);
+            document.getElementById('callTimer').textContent = '00:00';
+        }
+
+        // Error handling
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => errorDiv.style.display = 'none', 5000);
+        }
+
+        // Event listeners
+        // Call this after initializing peer
+        checkCameraSupport();
+        document.addEventListener('DOMContentLoaded', initializePeer);
+        document.getElementById('startCallBtn').addEventListener('click', startVideoCall);
+        document.getElementById('endCallBtn').addEventListener('click', endCall);
+        document.getElementById('toggleVideoBtn').addEventListener('click', toggleVideo);
+        document.getElementById('toggleAudioBtn').addEventListener('click', toggleAudio);
+        document.getElementById('flipCameraBtn').addEventListener('click', flipCamera);
+    </script>
+</body>
+</html>
